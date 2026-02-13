@@ -1,0 +1,12 @@
+---
+# Handlers for PostgreSQL 16 STIG role
+
+- name: Reload PostgreSQL
+  ansible.builtin.systemd:
+    name: "{{ postgresql_service_name }}"
+    state: reloaded
+
+- name: Restart PostgreSQL
+  ansible.builtin.systemd:
+    name: "{{ postgresql_service_name }}"
+    state: restarted

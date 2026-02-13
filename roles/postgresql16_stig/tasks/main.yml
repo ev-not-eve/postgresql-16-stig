@@ -1,0 +1,1935 @@
+---
+# PostgreSQL 16 STIG Tasks
+# Created from Crunchy Data PostgreSQL 16 STIG
+# Each task is tagged and gated by a boolean variable in defaults/main.yml
+# NOTE: Tasks that emit "MANUAL REVIEW REQUIRED" are review-only controls.
+# They are intentionally non-enforcing and require site procedures.
+
+- name: "PostgreSQL 16 STIG | Manual review notice"
+  ansible.builtin.debug:
+    msg: >-
+      This role includes both automated and manual-review controls. Any task
+      message beginning with "MANUAL REVIEW REQUIRED" does not enforce state
+      and must be handled by documented site procedures.
+  changed_when: false
+  when: postgresql_stig_enable_manual_review_tasks
+
+# V-261857 | CD16-00-000100 | CAT II
+# PostgreSQL must limit the number of concurrent sessions to an organization-defined number per user for all accounts and/or account types.
+- name: "CD16-00-000100 | CAT II | PostgreSQL must limit the number of concurrent sessions t... - Set max_connections"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?max_connections\s*='
+    line: "max_connections = {{ postgresql_stig_max_connections }}"
+    backup: true
+  notify: Restart PostgreSQL
+  tags:
+    - CD16-00-000100
+  when: CD16_00_000100
+
+# V-261858 | CD16-00-000200 | CAT I
+# PostgreSQL must integrate with an organization-level authentication/access mechanism providing account management and automation for all users, groups, roles, and any other principals.
+- name: "CD16-00-000200 | CAT I | PostgreSQL must integrate with an organization-level auth... - Review pg_hba.conf"
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Verify pg_hba.conf is configured according to
+      site-specific requirements. Ensure only approved authentication methods
+      are used and host entries are restricted to authorized networks.
+  tags:
+    - CD16-00-000200
+  when: (CD16_00_000200) and postgresql_stig_enable_manual_review_tasks
+
+# V-261859 | CD16-00-000300 | CAT I
+# PostgreSQL must enforce approved authorizations for logical access to information and system resources in accordance with applicable access control policies.
+- name: "CD16-00-000300 | CAT I | PostgreSQL must enforce approved authorizations for logic... - Review pg_hba.conf"
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Verify pg_hba.conf is configured according to
+      site-specific requirements. Ensure only approved authentication methods
+      are used and host entries are restricted to authorized networks.
+  tags:
+    - CD16-00-000300
+  when: (CD16_00_000300) and postgresql_stig_enable_manual_review_tasks
+
+# V-261860 | CD16-00-000400 | CAT II
+# PostgreSQL must protect against a user falsely repudiating having performed organization-defined actions.
+- name: "CD16-00-000400 | CAT II | PostgreSQL must protect against a user falsely repudiatin... - Set log_line_prefix"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_line_prefix\s*='
+    line: "log_line_prefix = '{{ postgresql_stig_log_line_prefix }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-000400
+  when: CD16_00_000400
+
+# V-261861 | CD16-00-000500 | CAT II
+# PostgreSQL must provide audit record generation capability for DOD-defined auditable events within all DBMS/database components.
+- name: "CD16-00-000500 | CAT II | PostgreSQL must provide audit record generation capabilit... - Ensure pgaudit is configured"
+  ansible.builtin.slurp:
+    path: "{{ postgresql_conf_path }}"
+  register: postgresql_stig_conf_000500
+  changed_when: false
+  failed_when: false
+  tags:
+    - CD16-00-000500
+  when: CD16_00_000500
+
+- name: "CD16-00-000500 | CAT II | PostgreSQL must provide audit record generation capabilit... - Build merged shared_preload_libraries"
+  ansible.builtin.set_fact:
+    postgresql_stig_shared_preload_000500: >-
+      {{
+        (
+          (
+            (
+              postgresql_stig_conf_000500.content
+              | default('')
+              | b64decode
+              | regex_findall("(?m)^\\s*#?shared_preload_libraries\\s*=\\s*'?([^'\\n#]*)'?")
+              | first
+              | default('')
+            ).split(',')
+            + postgresql_stig_shared_preload_libraries.split(',')
+          )
+          | map('trim')
+          | reject('equalto', '')
+          | unique
+          | join(', ')
+        )
+      }}
+  changed_when: false
+  tags:
+    - CD16-00-000500
+  when: CD16_00_000500
+
+- name: "CD16-00-000500 | CAT II | PostgreSQL must provide audit record generation capabilit... - Ensure shared_preload_libraries includes pgaudit"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?shared_preload_libraries\s*='
+    line: "shared_preload_libraries = '{{ postgresql_stig_shared_preload_000500 }}'"
+    insertafter: EOF
+    backup: true
+  notify: Restart PostgreSQL
+  tags:
+    - CD16-00-000500
+  when: CD16_00_000500
+
+# V-261862 | CD16-00-000600 | CAT II
+# PostgreSQL must allow only the information system security manager (ISSM), or individuals or roles appointed by the ISSM, to select which events are to be audited.
+- name: "CD16-00-000600 | CAT II | PostgreSQL must allow only the information system securit... - Set postgresql.conf permissions"
+  ansible.builtin.file:
+    path: "{{ postgresql_conf_path }}"
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: "0600"
+  tags:
+    - CD16-00-000600
+  when: CD16_00_000600
+
+# V-261863 | CD16-00-000700 | CAT II
+# PostgreSQL must be able to generate audit records when privileges/permissions are retrieved.
+- name: "CD16-00-000700 | CAT II | PostgreSQL must be able to generate audit records when pr... - Set pgaudit.log_catalog"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log_catalog\s*='
+    line: "pgaudit.log_catalog = on"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-000700
+  when: CD16_00_000700
+- name: "CD16-00-000700 | CAT II | PostgreSQL must be able to generate audit records when pr... - Set pgaudit.log"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log\s*='
+    line: "pgaudit.log = '{{ postgresql_stig_pgaudit_log }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-000700
+  when: CD16_00_000700
+
+# V-261864 | CD16-00-000800 | CAT II
+# PostgreSQL must generate audit records when unsuccessful attempts to retrieve privileges/permissions occur.
+- name: "CD16-00-000800 | CAT II | PostgreSQL must generate audit records when unsuccessful ... - Ensure logging is enabled"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?logging_collector\s*='
+    line: "logging_collector = on"
+    backup: true
+  notify: Restart PostgreSQL
+  tags:
+    - CD16-00-000800
+  when: CD16_00_000800
+
+# V-261865 | CD16-00-000900 | CAT II
+# PostgreSQL must initiate session auditing upon startup.
+- name: "CD16-00-000900 | CAT II | PostgreSQL must initiate session auditing upon startup. - Ensure pgaudit is configured"
+  ansible.builtin.slurp:
+    path: "{{ postgresql_conf_path }}"
+  register: postgresql_stig_conf_000900
+  changed_when: false
+  failed_when: false
+  tags:
+    - CD16-00-000900
+  when: CD16_00_000900
+
+- name: "CD16-00-000900 | CAT II | PostgreSQL must initiate session auditing upon startup. - Build merged shared_preload_libraries"
+  ansible.builtin.set_fact:
+    postgresql_stig_shared_preload_000900: >-
+      {{
+        (
+          (
+            (
+              postgresql_stig_conf_000900.content
+              | default('')
+              | b64decode
+              | regex_findall("(?m)^\\s*#?shared_preload_libraries\\s*=\\s*'?([^'\\n#]*)'?")
+              | first
+              | default('')
+            ).split(',')
+            + postgresql_stig_shared_preload_libraries.split(',')
+          )
+          | map('trim')
+          | reject('equalto', '')
+          | unique
+          | join(', ')
+        )
+      }}
+  changed_when: false
+  tags:
+    - CD16-00-000900
+  when: CD16_00_000900
+
+- name: "CD16-00-000900 | CAT II | PostgreSQL must initiate session auditing upon startup. - Ensure shared_preload_libraries includes pgaudit"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?shared_preload_libraries\s*='
+    line: "shared_preload_libraries = '{{ postgresql_stig_shared_preload_000900 }}'"
+    insertafter: EOF
+    backup: true
+  notify: Restart PostgreSQL
+  tags:
+    - CD16-00-000900
+  when: CD16_00_000900
+
+# V-261866 | CD16-00-001000 | CAT II
+# PostgreSQL must produce audit records containing sufficient information to establish what type of events occurred.
+- name: "CD16-00-001000 | CAT II | PostgreSQL must produce audit records containing sufficie... - Set log_connections"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_connections\s*='
+    line: "log_connections = on"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-001000
+  when: CD16_00_001000
+- name: "CD16-00-001000 | CAT II | PostgreSQL must produce audit records containing sufficie... - Set log_disconnections"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_disconnections\s*='
+    line: "log_disconnections = on"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-001000
+  when: CD16_00_001000
+- name: "CD16-00-001000 | CAT II | PostgreSQL must produce audit records containing sufficie... - Set log_line_prefix"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_line_prefix\s*='
+    line: "log_line_prefix = '{{ postgresql_stig_log_line_prefix }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-001000
+  when: CD16_00_001000
+
+# V-261867 | CD16-00-001100 | CAT II
+# PostgreSQL must produce audit records containing time stamps to establish when the events occurred.
+- name: "CD16-00-001100 | CAT II | PostgreSQL must produce audit records containing time sta... - Set log_line_prefix"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_line_prefix\s*='
+    line: "log_line_prefix = '{{ postgresql_stig_log_line_prefix }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-001100
+  when: CD16_00_001100
+
+# V-261868 | CD16-00-001200 | CAT II
+# PostgreSQL must produce audit records containing sufficient information to establish where the events occurred.
+- name: "CD16-00-001200 | CAT II | PostgreSQL must produce audit records containing sufficie... - Set log_line_prefix"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_line_prefix\s*='
+    line: "log_line_prefix = '{{ postgresql_stig_log_line_prefix }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-001200
+  when: CD16_00_001200
+
+# V-261869 | CD16-00-001300 | CAT II
+# PostgreSQL must produce audit records containing sufficient information to establish the sources (origins) of the events.
+- name: "CD16-00-001300 | CAT II | PostgreSQL must produce audit records containing sufficie... - Set log_line_prefix"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_line_prefix\s*='
+    line: "log_line_prefix = '{{ postgresql_stig_log_line_prefix }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-001300
+  when: CD16_00_001300
+- name: "CD16-00-001300 | CAT II | PostgreSQL must produce audit records containing sufficie... - Set log_hostname"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_hostname\s*='
+    line: "log_hostname = on"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-001300
+  when: CD16_00_001300
+
+# V-261870 | CD16-00-001400 | CAT II
+# PostgreSQL must produce audit records containing sufficient information to establish the outcome (success or failure) of the events.
+- name: "CD16-00-001400 | CAT II | PostgreSQL must produce audit records containing sufficie... - Set pgaudit.log_catalog"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log_catalog\s*='
+    line: "pgaudit.log_catalog = on"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-001400
+  when: CD16_00_001400
+- name: "CD16-00-001400 | CAT II | PostgreSQL must produce audit records containing sufficie... - Set pgaudit.log_level"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log_level\s*='
+    line: "pgaudit.log_level = 'log'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-001400
+  when: CD16_00_001400
+- name: "CD16-00-001400 | CAT II | PostgreSQL must produce audit records containing sufficie... - Set pgaudit.log_parameter"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log_parameter\s*='
+    line: "pgaudit.log_parameter = on"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-001400
+  when: CD16_00_001400
+- name: "CD16-00-001400 | CAT II | PostgreSQL must produce audit records containing sufficie... - Set pgaudit.log_statement_once"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log_statement_once\s*='
+    line: "pgaudit.log_statement_once = off"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-001400
+  when: CD16_00_001400
+- name: "CD16-00-001400 | CAT II | PostgreSQL must produce audit records containing sufficie... - Set pgaudit.log"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log\s*='
+    line: "pgaudit.log = '{{ postgresql_stig_pgaudit_log }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-001400
+  when: CD16_00_001400
+- name: "CD16-00-001400 | CAT II | PostgreSQL must produce audit records containing sufficie... - Set log_line_prefix"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_line_prefix\s*='
+    line: "log_line_prefix = '{{ postgresql_stig_log_line_prefix }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-001400
+  when: CD16_00_001400
+- name: "CD16-00-001400 | CAT II | PostgreSQL must produce audit records containing sufficie... - Set log_error_verbosity"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_error_verbosity\s*='
+    line: "log_error_verbosity = 'default'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-001400
+  when: CD16_00_001400
+
+# V-261871 | CD16-00-001500 | CAT II
+# PostgreSQL must produce audit records containing sufficient information to establish the identity of any user/subject or process associated with the event.
+- name: "CD16-00-001500 | CAT II | PostgreSQL must produce audit records containing sufficie... - Set log_line_prefix"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_line_prefix\s*='
+    line: "log_line_prefix = '{{ postgresql_stig_log_line_prefix }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-001500
+  when: CD16_00_001500
+
+# V-261872 | CD16-00-001600 | CAT II
+# PostgreSQL must include additional, more detailed, organization-defined information in the audit records for audit events identified by type, location, or subject.
+- name: "CD16-00-001600 | CAT II | PostgreSQL must include additional, more detailed, organi... - Ensure pgaudit is configured"
+  ansible.builtin.slurp:
+    path: "{{ postgresql_conf_path }}"
+  register: postgresql_stig_conf_001600
+  changed_when: false
+  failed_when: false
+  tags:
+    - CD16-00-001600
+  when: CD16_00_001600
+
+- name: "CD16-00-001600 | CAT II | PostgreSQL must include additional, more detailed, organi... - Build merged shared_preload_libraries"
+  ansible.builtin.set_fact:
+    postgresql_stig_shared_preload_001600: >-
+      {{
+        (
+          (
+            (
+              postgresql_stig_conf_001600.content
+              | default('')
+              | b64decode
+              | regex_findall("(?m)^\\s*#?shared_preload_libraries\\s*=\\s*'?([^'\\n#]*)'?")
+              | first
+              | default('')
+            ).split(',')
+            + postgresql_stig_shared_preload_libraries.split(',')
+          )
+          | map('trim')
+          | reject('equalto', '')
+          | unique
+          | join(', ')
+        )
+      }}
+  changed_when: false
+  tags:
+    - CD16-00-001600
+  when: CD16_00_001600
+
+- name: "CD16-00-001600 | CAT II | PostgreSQL must include additional, more detailed, organi... - Ensure shared_preload_libraries includes pgaudit"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?shared_preload_libraries\s*='
+    line: "shared_preload_libraries = '{{ postgresql_stig_shared_preload_001600 }}'"
+    insertafter: EOF
+    backup: true
+  notify: Restart PostgreSQL
+  tags:
+    - CD16-00-001600
+  when: CD16_00_001600
+
+# V-261873 | CD16-00-001700 | CAT II
+# PostgreSQL must, by default, shut down upon audit failure, to include the unavailability of space for more audit log records; or must be configurable to shut down upon audit failure.
+- name: "CD16-00-001700 | CAT II | PostgreSQL must, by default, shut down upon audit failure..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Modify PostgreSQL, OS, or third-party logging application settings to alert appropriate personnel when a specific percentage of log storage capacity is reached.
+  tags:
+    - CD16-00-001700
+  when: (CD16_00_001700) and postgresql_stig_enable_manual_review_tasks
+
+# V-261874 | CD16-00-001800 | CAT II
+# PostgreSQL must be configurable to overwrite audit log records, oldest first (first-in-first-out [FIFO]), in the event of unavailability of space for more audit log records.
+- name: "CD16-00-001800 | CAT II | PostgreSQL must be configurable to overwrite audit log re..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Establish a process and supporting tools to monitor available disk space and preserve audit logging capability. Configure retention and rotation so the oldest audit records can be overwritten first when capacity is exhausted, per organizational policy.
+  tags:
+    - CD16-00-001800
+  when: (CD16_00_001800) and postgresql_stig_enable_manual_review_tasks
+
+# V-261875 | CD16-00-002000 | CAT II
+# The audit information produced by PostgreSQL must be protected from unauthorized read access.
+- name: "CD16-00-002000 | CAT II | The audit information produced by PostgreSQL must be prot... - Set log_file_mode"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_file_mode\s*='
+    line: "log_file_mode = 0600"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-002000
+  when: CD16_00_002000
+
+# V-261876 | CD16-00-002100 | CAT II
+# The audit information produced by PostgreSQL must be protected from unauthorized modification.
+- name: "CD16-00-002100 | CAT II | The audit information produced by PostgreSQL must be prot... - Set log_file_mode"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_file_mode\s*='
+    line: "log_file_mode = 0600"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-002100
+  when: CD16_00_002100
+
+# V-261877 | CD16-00-002200 | CAT II
+# The audit information produced by PostgreSQL must be protected from unauthorized deletion.
+- name: "CD16-00-002200 | CAT II | The audit information produced by PostgreSQL must be prot... - Set log_file_mode"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_file_mode\s*='
+    line: "log_file_mode = 0600"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-002200
+  when: CD16_00_002200
+
+# V-261878 | CD16-00-002300 | CAT II
+# PostgreSQL must protect its audit features from unauthorized access.
+- name: "CD16-00-002300 | CAT II | PostgreSQL must protect its audit features from unauthori... - Set PGDATA ownership"
+  ansible.builtin.file:
+    path: "{{ postgresql_data_dir }}"
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: "0700"
+    state: directory
+  tags:
+    - CD16-00-002300
+  when: CD16_00_002300
+
+- name: "CD16-00-002300 | CAT II | PostgreSQL must protect its audit features from unauthori... - Set PGLOG ownership"
+  ansible.builtin.file:
+    path: "{{ postgresql_log_dir }}"
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: "0700"
+    state: directory
+  tags:
+    - CD16-00-002300
+  when: CD16_00_002300
+
+- name: "CD16-00-002300 | CAT II | PostgreSQL must protect its audit features from unauthori... - Discover pgaudit extension files"
+  ansible.builtin.find:
+    paths: "/usr/pgsql-{{ postgresql_version }}/share/extension"
+    patterns: "pgaudit*"
+    file_type: file
+  register: postgresql_stig_pgaudit_extension_files
+  changed_when: false
+  failed_when: false
+  tags:
+    - CD16-00-002300
+  when: CD16_00_002300
+
+- name: "CD16-00-002300 | CAT II | PostgreSQL must protect its audit features from unauthori... - Set pgaudit extension ownership"
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: "root"
+    group: "root"
+  loop: "{{ postgresql_stig_pgaudit_extension_files.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path }}"
+  tags:
+    - CD16-00-002300
+  when: CD16_00_002300
+
+# V-261879 | CD16-00-002400 | CAT II
+# PostgreSQL must protect its audit configuration from unauthorized modification.
+- name: "CD16-00-002400 | CAT II | PostgreSQL must protect its audit configuration from unau... - Set log_file_mode"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_file_mode\s*='
+    line: "log_file_mode = 0600"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-002400
+  when: CD16_00_002400
+
+# V-261880 | CD16-00-002500 | CAT II
+# PostgreSQL must protect its audit features from unauthorized removal.
+- name: "CD16-00-002500 | CAT II | PostgreSQL must protect its audit features from unauthori... - Set PGDATA ownership and permissions"
+  ansible.builtin.file:
+    path: "{{ postgresql_data_dir }}"
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: "0700"
+    state: directory
+  tags:
+    - CD16-00-002500
+  when: CD16_00_002500
+- name: "CD16-00-002500 | CAT II | PostgreSQL must protect its audit features from unauthori... - Set PostgreSQL install dir ownership"
+  ansible.builtin.file:
+    path: "/usr/pgsql-{{ postgresql_version }}"
+    owner: "root"
+    group: "root"
+    recurse: true
+    state: directory
+  tags:
+    - CD16-00-002500
+  when: CD16_00_002500
+
+# V-261881 | CD16-00-002600 | CAT II
+# PostgreSQL must limit privileges to change software modules, to include stored procedures, functions and triggers, and links to software external to PostgreSQL.
+- name: "CD16-00-002600 | CAT II | PostgreSQL must limit privileges to change software modul... - Set postgresql.conf ownership and permissions"
+  ansible.builtin.file:
+    path: "{{ postgresql_conf_path }}"
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: "0600"
+  tags:
+    - CD16-00-002600
+  when: CD16_00_002600
+
+- name: "CD16-00-002600 | CAT II | PostgreSQL must limit privileges to change software modul... - Discover PostgreSQL shared libraries"
+  ansible.builtin.find:
+    paths: "/usr/pgsql-{{ postgresql_version }}/lib"
+    patterns: "*.so"
+    file_type: file
+  register: postgresql_stig_shared_libraries
+  changed_when: false
+  failed_when: false
+  tags:
+    - CD16-00-002600
+  when: CD16_00_002600
+
+- name: "CD16-00-002600 | CAT II | PostgreSQL must limit privileges to change software modul... - Set shared library ownership and mode"
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: "root"
+    group: "root"
+    mode: "0755"
+  loop: "{{ postgresql_stig_shared_libraries.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path }}"
+  tags:
+    - CD16-00-002600
+  when: CD16_00_002600
+
+- name: "CD16-00-002600 | CAT II | PostgreSQL must limit privileges to change software modul... - Discover PostgreSQL binaries"
+  ansible.builtin.find:
+    paths: "/usr/pgsql-{{ postgresql_version }}/bin"
+    file_type: file
+  register: postgresql_stig_binaries
+  changed_when: false
+  failed_when: false
+  tags:
+    - CD16-00-002600
+  when: CD16_00_002600
+
+- name: "CD16-00-002600 | CAT II | PostgreSQL must limit privileges to change software modul... - Set binary ownership and mode"
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: "root"
+    group: "root"
+    mode: "0755"
+  loop: "{{ postgresql_stig_binaries.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path }}"
+  tags:
+    - CD16-00-002600
+  when: CD16_00_002600
+
+# V-261882 | CD16-00-002700 | CAT I
+# The PostgreSQL software installation account must be restricted to authorized users.
+- name: "CD16-00-002700 | CAT I | The PostgreSQL software installation account must be rest..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Develop, document, and implement procedures to restrict and track use of the PostgreSQL software installation account(s).
+  tags:
+    - CD16-00-002700
+  when: (CD16_00_002700) and postgresql_stig_enable_manual_review_tasks
+
+# V-261883 | CD16-00-002800 | CAT II
+# Database software, including PostgreSQL configuration files, must be stored in dedicated directories, or DASD pools, separate from the host OS and other applications.
+- name: "CD16-00-002800 | CAT II | Database software, including PostgreSQL configuration fil..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Install PostgreSQL software and configuration in directories separate from the host OS and other applications. Relocate or reinstall any application components that currently share PostgreSQL software directories.
+  tags:
+    - CD16-00-002800
+  when: (CD16_00_002800) and postgresql_stig_enable_manual_review_tasks
+
+# V-261884 | CD16-00-002900 | CAT II
+# Database objects (including but not limited to tables, indexes, storage, stored procedures, functions, triggers, links to software external to the DBMS, etc.) must be owned by database/PostgreSQL principals authorized for ownership.
+- name: "CD16-00-002900 | CAT II | Database objects (including but not limited to tables, in... - Review database privileges"
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Review and adjust database roles and privileges
+      as appropriate for your environment. Example remediation SQL:
+      CREATE SCHEMA test AUTHORIZATION bob
+      Validate that database object ownership is limited to authorized principals.
+  tags:
+    - CD16-00-002900
+  when: (CD16_00_002900) and postgresql_stig_enable_manual_review_tasks
+
+# V-261885 | CD16-00-003000 | CAT II
+# The role(s)/group(s) used to modify database structure (including but not necessarily limited to tables, indexes, storage, etc.) and logic modules (stored procedures, functions, triggers, links to software external to PostgreSQL, etc.) must be restricted to authorized users.
+- name: "CD16-00-003000 | CAT II | The role(s)/group(s) used to modify database structure (i... - Review database privileges"
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Review and adjust database roles and privileges
+      as appropriate for your environment. Example remediation SQL:
+      ALTER ROLE bob NOSUPERUSER; REVOKE SELECT ON some_function FROM bob;
+      Ensure only approved roles can modify schema objects and logic modules.
+  tags:
+    - CD16-00-003000
+  when: (CD16_00_003000) and postgresql_stig_enable_manual_review_tasks
+
+# V-261886 | CD16-00-003200 | CAT II
+# Unused database components, PostgreSQL software, and database objects must be removed.
+- name: "CD16-00-003200 | CAT II | Unused database components, PostgreSQL software, and data..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: To remove extensions, use the following commands: $ sudo su - postgres $ psql -c 'DROP EXTENSION <extension_name>' Note: Removal of plpgsql is not recommended.
+  tags:
+    - CD16-00-003200
+  when: (CD16_00_003200) and postgresql_stig_enable_manual_review_tasks
+
+# V-261887 | CD16-00-003300 | CAT II
+# Unused database components that are integrated in PostgreSQL and cannot be uninstalled must be disabled.
+- name: "CD16-00-003300 | CAT II | Unused database components that are integrated in Postgre..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: To remove any unneeded executables, as the system administrator, run the following: # RHEL/CENT Systems $ sudo yum erase <package_name> # Debian Systems $ sudo apt-get remove <package_name> Document approved components and remove nonessential packages.
+  tags:
+    - CD16-00-003300
+  when: (CD16_00_003300) and postgresql_stig_enable_manual_review_tasks
+
+# V-261888 | CD16-00-003400 | CAT II
+# Access to external executables must be disabled or restricted.
+- name: "CD16-00-003400 | CAT II | Access to external executables must be disabled or restri... - Review database privileges"
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Review and adjust database roles and privileges
+      as appropriate for your environment. Example remediation SQL:
+      ALTER ROLE <role-name> WITH NOSUPERUSER; DROP EXTENSION <extension_name>;
+      Confirm external executable access is disabled or restricted to authorized administrators.
+  tags:
+    - CD16-00-003400
+  when: (CD16_00_003400) and postgresql_stig_enable_manual_review_tasks
+
+# V-261889 | CD16-00-003500 | CAT II
+# PostgreSQL must be configured to prohibit or restrict the use of organization-defined functions, ports, protocols, and/or services, as defined in the PPSM CAL and vulnerability assessments.
+- name: "CD16-00-003500 | CAT II | PostgreSQL must be configured to prohibit or restrict the... - Set listen_addresses"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?listen_addresses\s*='
+    line: "listen_addresses = '{{ postgresql_stig_listen_addresses }}'"
+    backup: true
+  notify: Restart PostgreSQL
+  tags:
+    - CD16-00-003500
+  when: CD16_00_003500
+
+# V-261890 | CD16-00-003600 | CAT II
+# PostgreSQL must uniquely identify and authenticate organizational users (or processes acting on behalf of organizational users).
+- name: "CD16-00-003600 | CAT II | PostgreSQL must uniquely identify and authenticate organi... - Enforce scram-sha-256 in pg_hba.conf"
+  ansible.builtin.replace:
+    path: "{{ postgresql_hba_path }}"
+    regexp: '\bpassword\b'
+    replace: 'scram-sha-256'
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-003600
+  when: CD16_00_003600
+
+# V-261891 | CD16-00-003800 | CAT I
+# If passwords are used for authentication, PostgreSQL must store only hashed, salted representations of passwords.
+- name: "CD16-00-003800 | CAT I | If passwords are used for authentication, PostgreSQL must... - Set password_encryption"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?password_encryption\s*='
+    line: "password_encryption = 'scram-sha-256'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-003800
+  when: CD16_00_003800
+
+# V-261892 | CD16-00-003900 | CAT I
+# If passwords are used for authentication, PostgreSQL must transmit only encrypted representations of passwords.
+- name: "CD16-00-003900 | CAT I | If passwords are used for authentication, PostgreSQL must... - Enforce scram-sha-256 in pg_hba.conf"
+  ansible.builtin.replace:
+    path: "{{ postgresql_hba_path }}"
+    regexp: '\bpassword\b'
+    replace: 'scram-sha-256'
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-003900
+  when: CD16_00_003900
+
+# V-261893 | CD16-00-004000 | CAT II
+# PostgreSQL, when using PKI-based authentication, must validate certificates by performing RFC 5280-compliant certification path validation.
+- name: "CD16-00-004000 | CAT II | PostgreSQL, when using PKI-based authentication, must val... - Set ssl_crl_file"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?ssl_crl_file\s*='
+    line: "ssl_crl_file = '{{ postgresql_ssl_crl_file }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-004000
+  when: CD16_00_004000
+
+# V-261894 | CD16-00-004100 | CAT I
+# PostgreSQL must enforce authorized access to all PKI private keys stored/used by PostgreSQL.
+- name: "CD16-00-004100 | CAT I | PostgreSQL must enforce authorized access to all PKI priv... - Set ssl_ca_file"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?ssl_ca_file\s*='
+    line: "ssl_ca_file = '{{ postgresql_ssl_ca_file }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-004100
+  when: CD16_00_004100
+- name: "CD16-00-004100 | CAT I | PostgreSQL must enforce authorized access to all PKI priv... - Set ssl_crl_file"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?ssl_crl_file\s*='
+    line: "ssl_crl_file = '{{ postgresql_ssl_crl_file }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-004100
+  when: CD16_00_004100
+- name: "CD16-00-004100 | CAT I | PostgreSQL must enforce authorized access to all PKI priv... - Set ssl_cert_file"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?ssl_cert_file\s*='
+    line: "ssl_cert_file = '{{ postgresql_ssl_cert_file }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-004100
+  when: CD16_00_004100
+- name: "CD16-00-004100 | CAT I | PostgreSQL must enforce authorized access to all PKI priv... - Set ssl_key_file"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?ssl_key_file\s*='
+    line: "ssl_key_file = '{{ postgresql_ssl_key_file }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-004100
+  when: CD16_00_004100
+
+# V-261895 | CD16-00-004200 | CAT II
+# PostgreSQL must map the PKI-authenticated identity to an associated user account.
+- name: "CD16-00-004200 | CAT II | PostgreSQL must map the PKI-authenticated identity to an ... - Verify SSL certificates"
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Verify PostgreSQL SSL certificates are issued by
+      DOD PKI or DOD-approved PKI Certificate Authorities. Ensure ssl_cert_file,
+      ssl_key_file, and ssl_ca_file are properly configured.
+  tags:
+    - CD16-00-004200
+  when: (CD16_00_004200) and postgresql_stig_enable_manual_review_tasks
+
+# V-261896 | CD16-00-004400 | CAT I
+# PostgreSQL must use NIST FIPS 140-2 or 140-3 validated cryptographic modules for cryptographic operations.
+- name: "CD16-00-004400 | CAT I | PostgreSQL must use NIST FIPS 140-2 or 140-3 validated cr... - Ensure FIPS mode is enabled"
+  ansible.builtin.command:
+    cmd: fips-mode-setup --check
+  register: fips_check
+  changed_when: false
+  failed_when: "'is enabled' not in fips_check.stdout"
+  tags:
+    - CD16-00-004400
+  when: CD16_00_004400
+
+# V-261897 | CD16-00-004500 | CAT II
+# PostgreSQL must uniquely identify and authenticate nonorganizational users (or processes acting on behalf of nonorganizational users).
+- name: "CD16-00-004500 | CAT II | PostgreSQL must uniquely identify and authenticate nonorg... - Review database privileges"
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Review and adjust database roles and privileges
+      as appropriate for your environment. Example remediation SQL:
+      DROP ROLE <role_to_drop>; CREATE ROLE <role_name> LOGIN;
+      Ensure each nonorganizational account maps to a unique, accountable role.
+  tags:
+    - CD16-00-004500
+  when: (CD16_00_004500) and postgresql_stig_enable_manual_review_tasks
+
+# V-261898 | CD16-00-004600 | CAT II
+# PostgreSQL must separate user functionality (including user interface services) from database management functionality.
+- name: "CD16-00-004600 | CAT II | PostgreSQL must separate user functionality (including us... - Review database privileges"
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Review and adjust database roles and privileges
+      as appropriate for your environment. Example remediation SQL:
+      Ensure only authorized users have SUPERUSER, CREATEROLE, CREATEDB, or BYPASSRLS role attributes.
+  tags:
+    - CD16-00-004600
+  when: (CD16_00_004600) and postgresql_stig_enable_manual_review_tasks
+
+# V-261899 | CD16-00-004700 | CAT II
+# PostgreSQL must invalidate session identifiers upon user logout or other session termination.
+- name: "CD16-00-004700 | CAT II | PostgreSQL must invalidate session identifiers upon user ... - Set statement_timeout"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?statement_timeout\s*='
+    line: "statement_timeout = {{ postgresql_stig_statement_timeout_ms }}"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-004700
+  when: CD16_00_004700
+- name: "CD16-00-004700 | CAT II | PostgreSQL must invalidate session identifiers upon user ... - Set tcp_keepalives_idle"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?tcp_keepalives_idle\s*='
+    line: "tcp_keepalives_idle = {{ postgresql_stig_tcp_keepalives_idle }}"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-004700
+  when: CD16_00_004700
+- name: "CD16-00-004700 | CAT II | PostgreSQL must invalidate session identifiers upon user ... - Set tcp_keepalives_interval"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?tcp_keepalives_interval\s*='
+    line: "tcp_keepalives_interval = {{ postgresql_stig_tcp_keepalives_interval }}"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-004700
+  when: CD16_00_004700
+- name: "CD16-00-004700 | CAT II | PostgreSQL must invalidate session identifiers upon user ... - Set tcp_keepalives_count"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?tcp_keepalives_count\s*='
+    line: "tcp_keepalives_count = {{ postgresql_stig_tcp_keepalives_count }}"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-004700
+  when: CD16_00_004700
+
+# V-261900 | CD16-00-004900 | CAT II
+# PostgreSQL must maintain the authenticity of communications sessions by guarding against man-in-the-middle attacks that guess at Session ID values.
+- name: "CD16-00-004900 | CAT II | PostgreSQL must maintain the authenticity of communicatio... - Set ssl"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?ssl\s*='
+    line: "ssl = on"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-004900
+  when: CD16_00_004900
+
+# V-261901 | CD16-00-005200 | CAT I
+# PostgreSQL must protect the confidentiality and integrity of all information at rest.
+- name: "CD16-00-005200 | CAT I | PostgreSQL must protect the confidentiality and integrity..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Apply controls that protect confidentiality and integrity of data at rest. Use approved storage/filesystem encryption and, where required, database-level encryption (for example, pgcrypto) in accordance with policy.
+  tags:
+    - CD16-00-005200
+  when: (CD16_00_005200) and postgresql_stig_enable_manual_review_tasks
+
+# V-261902 | CD16-00-005300 | CAT II
+# PostgreSQL must isolate security functions from nonsecurity functions.
+- name: "CD16-00-005300 | CAT II | PostgreSQL must isolate security functions from nonsecuri... - Review database privileges"
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Review and adjust database roles and privileges
+      as appropriate for your environment. Example remediation SQL:
+      Restrict access to pg_catalog and information_schema to authorized administrators and required roles only.
+  tags:
+    - CD16-00-005300
+  when: (CD16_00_005300) and postgresql_stig_enable_manual_review_tasks
+
+# V-261903 | CD16-00-005400 | CAT II
+# Database contents must be protected from unauthorized and unintended information transfer by enforcement of a data-transfer policy.
+- name: "CD16-00-005400 | CAT II | Database contents must be protected from unauthorized and..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Modify data movement procedures and code so transfers from production to nonproduction systems comply with the organization-defined data transfer policy, and do not leave unmanaged copies of production data.
+  tags:
+    - CD16-00-005400
+  when: (CD16_00_005400) and postgresql_stig_enable_manual_review_tasks
+
+# V-261904 | CD16-00-005600 | CAT II
+# Access to database files must be limited to relevant processes and to authorized, administrative users.
+- name: "CD16-00-005600 | CAT II | Access to database files must be limited to relevant proc..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Configure OS and filesystem permissions for PGDATA and related directories so only PostgreSQL processes and authorized administrators can read or modify database files.
+  tags:
+    - CD16-00-005600
+  when: (CD16_00_005600) and postgresql_stig_enable_manual_review_tasks
+
+# V-261905 | CD16-00-005700 | CAT II
+# PostgreSQL must check the validity of all data inputs except those specifically identified by the organization.
+- name: "CD16-00-005700 | CAT II | PostgreSQL must check the validity of all data inputs exc..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Implement input validation before data is written or processed, and enforce schema constraints/checks so invalid or out-of-range values are rejected.
+  tags:
+    - CD16-00-005700
+  when: (CD16_00_005700) and postgresql_stig_enable_manual_review_tasks
+
+# V-261906 | CD16-00-005800 | CAT II
+# PostgreSQL and associated applications must reserve the use of dynamic code execution for situations that require it.
+- name: "CD16-00-005800 | CAT II | PostgreSQL and associated applications must reserve the u..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Where dynamic code execution is employed in circumstances where the objective could practically be satisfied by static execution with strongly typed parameters, modify the code to do so.
+  tags:
+    - CD16-00-005800
+  when: (CD16_00_005800) and postgresql_stig_enable_manual_review_tasks
+
+# V-261907 | CD16-00-005900 | CAT II
+# PostgreSQL and associated applications, when making use of dynamic code execution, must scan input data for invalid values that may indicate a code injection attack.
+- name: "CD16-00-005900 | CAT II | PostgreSQL and associated applications, when making use o..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Where dynamic code execution is used, modify the code to implement protections against code injection (i.e., prepared statements).
+  tags:
+    - CD16-00-005900
+  when: (CD16_00_005900) and postgresql_stig_enable_manual_review_tasks
+
+# V-261908 | CD16-00-006000 | CAT II
+# PostgreSQL must provide nonprivileged users with error messages that provide information necessary for corrective actions without revealing information that could be exploited by adversaries.
+- name: "CD16-00-006000 | CAT II | PostgreSQL must provide nonprivileged users with error me... - Set client_min_messages"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?client_min_messages\s*='
+    line: "client_min_messages = error"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-006000
+  when: CD16_00_006000
+
+# V-261909 | CD16-00-006100 | CAT II
+# PostgreSQL must reveal detailed error messages only to the information system security officer (ISSO), information system security manager (ISSM), system administrator (SA), and database administrator (DBA).
+- name: "CD16-00-006100 | CAT II | PostgreSQL must reveal detailed error messages only to th... - Set client_min_messages"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?client_min_messages\s*='
+    line: "client_min_messages = error"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-006100
+  when: CD16_00_006100
+
+# V-261910 | CD16-00-006200 | CAT II
+# PostgreSQL must automatically terminate a user session after organization-defined conditions or trigger events requiring session disconnect.
+- name: "CD16-00-006200 | CAT II | PostgreSQL must automatically terminate a user session af... - Review database privileges"
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Review and adjust database roles and privileges
+      as appropriate for your environment. Example remediation SQL:
+      ALTER ROLE '<username>' NOLOGIN
+      Apply session termination controls based on organization-defined trigger conditions.
+  tags:
+    - CD16-00-006200
+  when: (CD16_00_006200) and postgresql_stig_enable_manual_review_tasks
+
+# V-261911 | CD16-00-006400 | CAT II
+# PostgreSQL must associate organization-defined types of security labels having organization-defined security label values with information in storage.
+- name: "CD16-00-006400 | CAT II | PostgreSQL must associate organization-defined types of s..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Implement and enforce row-level security and/or labeling controls so access to stored information aligns with organization-defined security labels and policy.
+  tags:
+    - CD16-00-006400
+  when: (CD16_00_006400) and postgresql_stig_enable_manual_review_tasks
+
+# V-261912 | CD16-00-006500 | CAT II
+# PostgreSQL must associate organization-defined types of security labels having organization-defined security label values with information in process.
+- name: "CD16-00-006500 | CAT II | PostgreSQL must associate organization-defined types of s..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Implement and enforce controls for information in process, such as row-level security and role-based restrictions, according to organization-defined security labels.
+  tags:
+    - CD16-00-006500
+  when: (CD16_00_006500) and postgresql_stig_enable_manual_review_tasks
+
+# V-261913 | CD16-00-006600 | CAT II
+# PostgreSQL must associate organization-defined types of security labels having organization-defined security label values with information in transmission.
+- name: "CD16-00-006600 | CAT II | PostgreSQL must associate organization-defined types of s..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Implement and enforce controls for information in transmission, including role-based access and encryption settings, according to organization-defined security labels.
+  tags:
+    - CD16-00-006600
+  when: (CD16_00_006600) and postgresql_stig_enable_manual_review_tasks
+
+# V-261914 | CD16-00-006700 | CAT II
+# PostgreSQL must enforce discretionary access control policies, as defined by the data owner, over defined subjects and objects.
+- name: "CD16-00-006700 | CAT II | PostgreSQL must enforce discretionary access control poli... - Review database privileges"
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Review and adjust database roles and privileges
+      as appropriate for your environment. Example remediation SQL:
+      Grant only minimum required privileges to approved roles, and revoke unnecessary privileges from public and nonprivileged roles.
+  tags:
+    - CD16-00-006700
+  when: (CD16_00_006700) and postgresql_stig_enable_manual_review_tasks
+
+# V-261915 | CD16-00-006800 | CAT II
+# PostgreSQL must prevent nonprivileged users from executing privileged functions, to include disabling, circumventing, or altering implemented security safeguards/countermeasures.
+- name: "CD16-00-006800 | CAT II | PostgreSQL must prevent nonprivileged users from executin... - Review database privileges"
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Review and adjust database roles and privileges
+      as appropriate for your environment. Example remediation SQL:
+      REVOKE ALL ON FUNCTION <function_name> FROM <role_name>;
+      Verify nonprivileged users cannot invoke privileged functions.
+  tags:
+    - CD16-00-006800
+  when: (CD16_00_006800) and postgresql_stig_enable_manual_review_tasks
+
+# V-261916 | CD16-00-006900 | CAT II
+# Execution of software modules (to include stored procedures, functions, and triggers) with elevated privileges must be restricted to necessary cases only.
+- name: "CD16-00-006900 | CAT II | Execution of software modules (to include stored procedur... - Review database privileges"
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Review and adjust database roles and privileges
+      as appropriate for your environment. Example remediation SQL:
+      ALTER FUNCTION <function_name> SECURITY INVOKER
+      Restrict elevated execution to approved modules and business-justified cases.
+  tags:
+    - CD16-00-006900
+  when: (CD16_00_006900) and postgresql_stig_enable_manual_review_tasks
+
+# V-261917 | CD16-00-007000 | CAT II
+# PostgreSQL must use centralized management of the content captured in audit records generated by all components of PostgreSQL.
+- name: "CD16-00-007000 | CAT II | PostgreSQL must use centralized management of the content... - Set log_destination"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_destination\s*='
+    line: "log_destination = 'syslog'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-007000
+  when: CD16_00_007000
+- name: "CD16-00-007000 | CAT II | PostgreSQL must use centralized management of the content... - Set syslog_facility"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?syslog_facility\s*='
+    line: "syslog_facility = 'LOCAL0'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-007000
+  when: CD16_00_007000
+- name: "CD16-00-007000 | CAT II | PostgreSQL must use centralized management of the content... - Set syslog_ident"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?syslog_ident\s*='
+    line: "syslog_ident = 'postgres'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-007000
+  when: CD16_00_007000
+
+# V-261918 | CD16-00-007200 | CAT II
+# PostgreSQL must allocate audit record storage capacity in accordance with organization-defined audit record storage requirements.
+- name: "CD16-00-007200 | CAT II | PostgreSQL must allocate audit record storage capacity in..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Allocate sufficient audit file/table space to support peak demand.
+  tags:
+    - CD16-00-007200
+  when: (CD16_00_007200) and postgresql_stig_enable_manual_review_tasks
+
+# V-261919 | CD16-00-007300 | CAT II
+# PostgreSQL must provide a warning to appropriate support staff when allocated audit record storage volume reaches 75 percent of maximum audit record storage capacity.
+- name: "CD16-00-007300 | CAT II | PostgreSQL must provide a warning to appropriate support ..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Configure monitoring to notify appropriate support staff when audit storage reaches the organization-defined warning threshold (for example, 75 percent of allocated capacity).
+  tags:
+    - CD16-00-007300
+  when: (CD16_00_007300) and postgresql_stig_enable_manual_review_tasks
+
+# V-261920 | CD16-00-007400 | CAT II
+# PostgreSQL must provide an immediate real-time alert to appropriate support staff of all audit log failures.
+- name: "CD16-00-007400 | CAT II | PostgreSQL must provide an immediate real-time alert to a..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Configure immediate, real-time alerting to appropriate support staff when audit logging fails.
+  tags:
+    - CD16-00-007400
+  when: (CD16_00_007400) and postgresql_stig_enable_manual_review_tasks
+
+# V-261921 | CD16-00-007500 | CAT II
+# PostgreSQL must record time stamps in audit records and application data that can be mapped to Coordinated Universal Time (UTC), formerly Greenwich Mean Time (GMT).
+- name: "CD16-00-007500 | CAT II | PostgreSQL must record time stamps in audit records and a... - Set log_timezone"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_timezone\s*='
+    line: "log_timezone = 'UTC'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-007500
+  when: CD16_00_007500
+
+# V-261922 | CD16-00-007600 | CAT II
+# PostgreSQL must generate time stamps for audit records and application data with a minimum granularity of one second.
+- name: "CD16-00-007600 | CAT II | PostgreSQL must generate time stamps for audit records an... - Set log_line_prefix"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_line_prefix\s*='
+    line: "log_line_prefix = '{{ postgresql_stig_log_line_prefix }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-007600
+  when: CD16_00_007600
+
+# V-261923 | CD16-00-007700 | CAT II
+# PostgreSQL must prohibit user installation of logic modules (stored procedures, functions, triggers, views, etc.) without explicit privileged status.
+- name: "CD16-00-007700 | CAT II | PostgreSQL must prohibit user installation of logic modul... - Review database privileges"
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Review and adjust database roles and privileges
+      as appropriate for your environment. Example remediation SQL:
+      Revoke any unapproved permissions.
+  tags:
+    - CD16-00-007700
+  when: (CD16_00_007700) and postgresql_stig_enable_manual_review_tasks
+
+# V-261924 | CD16-00-007800 | CAT II
+# PostgreSQL must enforce access restrictions associated with changes to the configuration of the DBMS or database(s).
+- name: "CD16-00-007800 | CAT II | PostgreSQL must enforce access restrictions associated wi... - Review database privileges"
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Review and adjust database roles and privileges
+      as appropriate for your environment. Example remediation SQL:
+      ALTER ROLE <role_name> NOSUPERUSER; REVOKE ALL ON SCHEMA <schema> FROM <role_name>;
+      Verify configuration-change privileges are limited to authorized administrator roles.
+  tags:
+    - CD16-00-007800
+  when: (CD16_00_007800) and postgresql_stig_enable_manual_review_tasks
+
+# V-261925 | CD16-00-007900 | CAT II
+# PostgreSQL must produce audit records of its enforcement of access restrictions associated with changes to the configuration of PostgreSQL or database(s).
+- name: "CD16-00-007900 | CAT II | PostgreSQL must produce audit records of its enforcement ... - Ensure logging is enabled"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?logging_collector\s*='
+    line: "logging_collector = on"
+    backup: true
+  notify: Restart PostgreSQL
+  tags:
+    - CD16-00-007900
+  when: CD16_00_007900
+
+# V-261926 | CD16-00-008000 | CAT II
+# PostgreSQL must disable network functions, ports, protocols, and services deemed by the organization to be nonsecure, in accordance with the Ports, Protocols, and Services Management (PPSM) guidance.
+- name: "CD16-00-008000 | CAT II | PostgreSQL must disable network functions, ports, protoco..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Review and configure PostgreSQL ports, protocols, and services per PPSM guidance and local policy; disable or restrict nonapproved network exposure.
+  tags:
+    - CD16-00-008000
+  when: (CD16_00_008000) and postgresql_stig_enable_manual_review_tasks
+
+# V-261927 | CD16-00-008100 | CAT II
+# PostgreSQL must require users to reauthenticate when organization-defined circumstances or situations require reauthentication.
+- name: "CD16-00-008100 | CAT II | PostgreSQL must require users to reauthenticate when orga..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Configure PostgreSQL and related tools to require reauthentication when users change role, escalate privileges, or when other organization-defined conditions require it.
+  tags:
+    - CD16-00-008100
+  when: (CD16_00_008100) and postgresql_stig_enable_manual_review_tasks
+
+# V-261928 | CD16-00-008300 | CAT I
+# PostgreSQL must use NSA-approved cryptography to protect classified information in accordance with the data owner's requirements.
+- name: "CD16-00-008300 | CAT I | PostgreSQL must use NSA-approved cryptography to protect ... - Set ssl"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?ssl\s*='
+    line: "ssl = on"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-008300
+  when: CD16_00_008300
+
+# V-261929 | CD16-00-008400 | CAT II
+# PostgreSQL must only accept end entity certificates issued by DOD PKI or DOD-approved PKI Certification Authorities (CAs) for the establishment of all encrypted sessions.
+- name: "CD16-00-008400 | CAT II | PostgreSQL must only accept end entity certificates issue... - Verify SSL certificates"
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Verify PostgreSQL SSL certificates are issued by
+      DOD PKI or DOD-approved PKI Certificate Authorities. Ensure ssl_cert_file,
+      ssl_key_file, and ssl_ca_file are properly configured.
+  tags:
+    - CD16-00-008400
+  when: (CD16_00_008400) and postgresql_stig_enable_manual_review_tasks
+
+# V-261930 | CD16-00-008500 | CAT II
+# PostgreSQL must implement cryptographic mechanisms to prevent unauthorized modification of organization-defined information at rest (to include, at a minimum, PII and classified information) on organization-defined information system components.
+- name: "CD16-00-008500 | CAT II | PostgreSQL must implement cryptographic mechanisms to pre..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Configure approved cryptographic protections to prevent unauthorized modification of protected data at rest, including organization-required categories such as PII or classified data.
+  tags:
+    - CD16-00-008500
+  when: (CD16_00_008500) and postgresql_stig_enable_manual_review_tasks
+
+# V-261931 | CD16-00-008600 | CAT II
+# PostgreSQL must implement cryptographic mechanisms preventing the unauthorized disclosure of organization-defined information at rest on organization-defined information system components.
+- name: "CD16-00-008600 | CAT II | PostgreSQL must implement cryptographic mechanisms preven..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Configure approved cryptographic protections to prevent unauthorized disclosure of protected data at rest.
+  tags:
+    - CD16-00-008600
+  when: (CD16_00_008600) and postgresql_stig_enable_manual_review_tasks
+
+# V-261932 | CD16-00-008800 | CAT II
+# PostgreSQL must maintain the confidentiality and integrity of information during preparation for transmission.
+- name: "CD16-00-008800 | CAT II | PostgreSQL must maintain the confidentiality and integrit... - Set ssl"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?ssl\s*='
+    line: "ssl = on"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-008800
+  when: CD16_00_008800
+
+# V-261933 | CD16-00-008900 | CAT II
+# PostgreSQL must maintain the confidentiality and integrity of information during reception.
+- name: "CD16-00-008900 | CAT II | PostgreSQL must maintain the confidentiality and integrit... - Verify SSL certificates"
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Verify PostgreSQL SSL certificates are issued by
+      DOD PKI or DOD-approved PKI Certificate Authorities. Ensure ssl_cert_file,
+      ssl_key_file, and ssl_ca_file are properly configured.
+  tags:
+    - CD16-00-008900
+  when: (CD16_00_008900) and postgresql_stig_enable_manual_review_tasks
+
+# V-261934 | CD16-00-009000 | CAT II
+# When invalid inputs are received, PostgreSQL must behave in a predictable and documented manner that reflects organizational and system objectives.
+- name: "CD16-00-009000 | CAT II | When invalid inputs are received, PostgreSQL must behave ... - Ensure logging is enabled"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?logging_collector\s*='
+    line: "logging_collector = on"
+    backup: true
+  notify: Restart PostgreSQL
+  tags:
+    - CD16-00-009000
+  when: CD16_00_009000
+
+# V-261935 | CD16-00-009100 | CAT II
+# When updates are applied to the PostgreSQL software, any software components that have been replaced or made unnecessary must be removed.
+- name: "CD16-00-009100 | CAT II | When updates are applied to the PostgreSQL software, any ..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Use package managers (RPM or apt-get) for installing PostgreSQL. Unused software is removed when updated.
+  tags:
+    - CD16-00-009100
+  when: (CD16_00_009100) and postgresql_stig_enable_manual_review_tasks
+
+# V-261936 | CD16-00-009200 | CAT II
+# Security-relevant software updates to PostgreSQL must be installed within the time period directed by an authoritative source (e.g., IAVM, CTOs, DTMs, and STIGs).
+- name: "CD16-00-009200 | CAT II | Security-relevant software updates to PostgreSQL must be ..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Institute and adhere to policies and procedures to ensure that patches are consistently applied to PostgreSQL within the time allowed.
+  tags:
+    - CD16-00-009200
+  when: (CD16_00_009200) and postgresql_stig_enable_manual_review_tasks
+
+# V-261937 | CD16-00-009300 | CAT I
+# PostgreSQL products must be a version supported by the vendor.
+- name: "CD16-00-009300 | CAT I | PostgreSQL products must be a version supported by the ve..."
+  ansible.builtin.debug:
+    msg: >-
+      MANUAL REVIEW REQUIRED: Institute and adhere to policies and procedures to ensure that patches are consistently applied to PostgreSQL within the time allowed.
+  tags:
+    - CD16-00-009300
+  when: (CD16_00_009300) and postgresql_stig_enable_manual_review_tasks
+
+# V-261938 | CD16-00-009400 | CAT II
+# PostgreSQL must be able to generate audit records when security objects are accessed.
+- name: "CD16-00-009400 | CAT II | PostgreSQL must be able to generate audit records when se... - Set pgaudit.log"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log\s*='
+    line: "pgaudit.log = '{{ postgresql_stig_pgaudit_log }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-009400
+  when: CD16_00_009400
+
+# V-261939 | CD16-00-009500 | CAT II
+# PostgreSQL must generate audit records when unsuccessful attempts to access security objects occur.
+- name: "CD16-00-009500 | CAT II | PostgreSQL must generate audit records when unsuccessful ... - Ensure logging is enabled"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?logging_collector\s*='
+    line: "logging_collector = on"
+    backup: true
+  notify: Restart PostgreSQL
+  tags:
+    - CD16-00-009500
+  when: CD16_00_009500
+
+# V-261940 | CD16-00-009600 | CAT II
+# PostgreSQL must generate audit records when categories of information (e.g., classification levels/security levels) are accessed.
+- name: "CD16-00-009600 | CAT II | PostgreSQL must generate audit records when categories of... - Set pgaudit.log"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log\s*='
+    line: "pgaudit.log = '{{ postgresql_stig_pgaudit_log }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-009600
+  when: CD16_00_009600
+
+# V-261941 | CD16-00-009700 | CAT II
+# PostgreSQL must generate audit records when unsuccessful attempts to access categories of information (e.g., classification levels/security levels) occur.
+- name: "CD16-00-009700 | CAT II | PostgreSQL must generate audit records when unsuccessful ... - Set pgaudit.log"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log\s*='
+    line: "pgaudit.log = '{{ postgresql_stig_pgaudit_log }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-009700
+  when: CD16_00_009700
+
+# V-261942 | CD16-00-009800 | CAT II
+# PostgreSQL must generate audit records when privileges/permissions are added.
+- name: "CD16-00-009800 | CAT II | PostgreSQL must generate audit records when privileges/pe... - Set pgaudit.log"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log\s*='
+    line: "pgaudit.log = '{{ postgresql_stig_pgaudit_log }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-009800
+  when: CD16_00_009800
+
+# V-261943 | CD16-00-009900 | CAT II
+# PostgreSQL must generate audit records when unsuccessful attempts to add privileges/permissions occur.
+- name: "CD16-00-009900 | CAT II | PostgreSQL must generate audit records when unsuccessful ... - Ensure logging is enabled"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?logging_collector\s*='
+    line: "logging_collector = on"
+    backup: true
+  notify: Restart PostgreSQL
+  tags:
+    - CD16-00-009900
+  when: CD16_00_009900
+
+# V-261944 | CD16-00-010000 | CAT II
+# PostgreSQL must generate audit records when privileges/permissions are modified.
+- name: "CD16-00-010000 | CAT II | PostgreSQL must generate audit records when privileges/pe... - Set pgaudit.log"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log\s*='
+    line: "pgaudit.log = '{{ postgresql_stig_pgaudit_log }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-010000
+  when: CD16_00_010000
+
+# V-261945 | CD16-00-010100 | CAT II
+# PostgreSQL must generate audit records when unsuccessful attempts to modify privileges/permissions occur.
+- name: "CD16-00-010100 | CAT II | PostgreSQL must generate audit records when unsuccessful ... - Ensure logging is enabled"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?logging_collector\s*='
+    line: "logging_collector = on"
+    backup: true
+  notify: Restart PostgreSQL
+  tags:
+    - CD16-00-010100
+  when: CD16_00_010100
+
+# V-261946 | CD16-00-010200 | CAT II
+# PostgreSQL must generate audit records when security objects are modified.
+- name: "CD16-00-010200 | CAT II | PostgreSQL must generate audit records when security obje... - Set pgaudit.log_catalog"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log_catalog\s*='
+    line: "pgaudit.log_catalog = on"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-010200
+  when: CD16_00_010200
+- name: "CD16-00-010200 | CAT II | PostgreSQL must generate audit records when security obje... - Set pgaudit.log"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log\s*='
+    line: "pgaudit.log = '{{ postgresql_stig_pgaudit_log }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-010200
+  when: CD16_00_010200
+
+# V-261947 | CD16-00-010300 | CAT II
+# PostgreSQL must generate audit records when unsuccessful attempts to modify security objects occur.
+- name: "CD16-00-010300 | CAT II | PostgreSQL must generate audit records when unsuccessful ... - Ensure logging is enabled"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?logging_collector\s*='
+    line: "logging_collector = on"
+    backup: true
+  notify: Restart PostgreSQL
+  tags:
+    - CD16-00-010300
+  when: CD16_00_010300
+
+# V-261948 | CD16-00-010400 | CAT II
+# PostgreSQL must generate audit records when categories of information (e.g., classification levels/security levels) are modified.
+- name: "CD16-00-010400 | CAT II | PostgreSQL must generate audit records when categories of... - Set pgaudit.log"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log\s*='
+    line: "pgaudit.log = '{{ postgresql_stig_pgaudit_log }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-010400
+  when: CD16_00_010400
+
+# V-261949 | CD16-00-010500 | CAT II
+# PostgreSQL must generate audit records when unsuccessful attempts to modify categories of information (e.g., classification levels/security levels) occur.
+- name: "CD16-00-010500 | CAT II | PostgreSQL must generate audit records when unsuccessful ... - Set pgaudit.log"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log\s*='
+    line: "pgaudit.log = '{{ postgresql_stig_pgaudit_log }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-010500
+  when: CD16_00_010500
+
+# V-261950 | CD16-00-010600 | CAT II
+# PostgreSQL must generate audit records when privileges/permissions are deleted.
+- name: "CD16-00-010600 | CAT II | PostgreSQL must generate audit records when privileges/pe... - Set pgaudit.log"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log\s*='
+    line: "pgaudit.log = '{{ postgresql_stig_pgaudit_log }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-010600
+  when: CD16_00_010600
+
+# V-261951 | CD16-00-010700 | CAT II
+# PostgreSQL must generate audit records when unsuccessful attempts to delete privileges/permissions occur.
+- name: "CD16-00-010700 | CAT II | PostgreSQL must generate audit records when unsuccessful ... - Ensure logging is enabled"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?logging_collector\s*='
+    line: "logging_collector = on"
+    backup: true
+  notify: Restart PostgreSQL
+  tags:
+    - CD16-00-010700
+  when: CD16_00_010700
+
+# V-261952 | CD16-00-010800 | CAT II
+# PostgreSQL must generate audit records when security objects are deleted.
+- name: "CD16-00-010800 | CAT II | PostgreSQL must generate audit records when security obje... - Set pgaudit.log"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log\s*='
+    line: "pgaudit.log = '{{ postgresql_stig_pgaudit_log }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-010800
+  when: CD16_00_010800
+
+# V-261953 | CD16-00-010900 | CAT II
+# PostgreSQL must generate audit records when unsuccessful attempts to delete security objects occur.
+- name: "CD16-00-010900 | CAT II | PostgreSQL must generate audit records when unsuccessful ... - Set pgaudit.log"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log\s*='
+    line: "pgaudit.log = '{{ postgresql_stig_pgaudit_log }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-010900
+  when: CD16_00_010900
+
+# V-261954 | CD16-00-011000 | CAT II
+# PostgreSQL must generate audit records when categories of information (e.g., classification levels/security levels) are deleted.
+- name: "CD16-00-011000 | CAT II | PostgreSQL must generate audit records when categories of... - Set pgaudit.log"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log\s*='
+    line: "pgaudit.log = '{{ postgresql_stig_pgaudit_log }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-011000
+  when: CD16_00_011000
+
+# V-261955 | CD16-00-011100 | CAT II
+# PostgreSQL must generate audit records when unsuccessful attempts to delete categories of information (e.g., classification levels/security levels) occur.
+- name: "CD16-00-011100 | CAT II | PostgreSQL must generate audit records when unsuccessful ... - Set pgaudit.log"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log\s*='
+    line: "pgaudit.log = '{{ postgresql_stig_pgaudit_log }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-011100
+  when: CD16_00_011100
+
+# V-261956 | CD16-00-011200 | CAT II
+# PostgreSQL must generate audit records when successful logons or connections occur.
+- name: "CD16-00-011200 | CAT II | PostgreSQL must generate audit records when successful lo... - Set log_connections"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_connections\s*='
+    line: "log_connections = on"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-011200
+  when: CD16_00_011200
+- name: "CD16-00-011200 | CAT II | PostgreSQL must generate audit records when successful lo... - Set log_line_prefix"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_line_prefix\s*='
+    line: "log_line_prefix = '{{ postgresql_stig_log_line_prefix }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-011200
+  when: CD16_00_011200
+
+# V-261957 | CD16-00-011300 | CAT II
+# PostgreSQL must generate audit records when unsuccessful logons or connection attempts occur.
+- name: "CD16-00-011300 | CAT II | PostgreSQL must generate audit records when unsuccessful ... - Set log_connections"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_connections\s*='
+    line: "log_connections = on"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-011300
+  when: CD16_00_011300
+- name: "CD16-00-011300 | CAT II | PostgreSQL must generate audit records when unsuccessful ... - Set log_line_prefix"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_line_prefix\s*='
+    line: "log_line_prefix = '{{ postgresql_stig_log_line_prefix }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-011300
+  when: CD16_00_011300
+
+# V-261958 | CD16-00-011400 | CAT II
+# PostgreSQL must generate audit records for all privileged activities or other system-level access.
+- name: "CD16-00-011400 | CAT II | PostgreSQL must generate audit records for all privileged... - Set shared_preload_libraries"
+  ansible.builtin.slurp:
+    path: "{{ postgresql_conf_path }}"
+  register: postgresql_stig_conf_011400
+  changed_when: false
+  failed_when: false
+  tags:
+    - CD16-00-011400
+  when: CD16_00_011400
+
+- name: "CD16-00-011400 | CAT II | PostgreSQL must generate audit records for all privileged... - Build merged shared_preload_libraries"
+  ansible.builtin.set_fact:
+    postgresql_stig_shared_preload_011400: >-
+      {{
+        (
+          (
+            (
+              postgresql_stig_conf_011400.content
+              | default('')
+              | b64decode
+              | regex_findall("(?m)^\\s*#?shared_preload_libraries\\s*=\\s*'?([^'\\n#]*)'?")
+              | first
+              | default('')
+            ).split(',')
+            + postgresql_stig_shared_preload_libraries.split(',')
+          )
+          | map('trim')
+          | reject('equalto', '')
+          | unique
+          | join(', ')
+        )
+      }}
+  changed_when: false
+  tags:
+    - CD16-00-011400
+  when: CD16_00_011400
+
+- name: "CD16-00-011400 | CAT II | PostgreSQL must generate audit records for all privileged... - Ensure shared_preload_libraries includes pgaudit"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?shared_preload_libraries\s*='
+    line: "shared_preload_libraries = '{{ postgresql_stig_shared_preload_011400 }}'"
+    insertafter: EOF
+    backup: true
+  notify: Restart PostgreSQL
+  tags:
+    - CD16-00-011400
+  when: CD16_00_011400
+- name: "CD16-00-011400 | CAT II | PostgreSQL must generate audit records for all privileged... - Set pgaudit.log"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log\s*='
+    line: "pgaudit.log = '{{ postgresql_stig_pgaudit_log }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-011400
+  when: CD16_00_011400
+
+# V-261959 | CD16-00-011500 | CAT II
+# PostgreSQL must generate audit records when unsuccessful attempts to execute privileged activities or other system-level access occur.
+- name: "CD16-00-011500 | CAT II | PostgreSQL must generate audit records when unsuccessful ... - Ensure logging is enabled"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?logging_collector\s*='
+    line: "logging_collector = on"
+    backup: true
+  notify: Restart PostgreSQL
+  tags:
+    - CD16-00-011500
+  when: CD16_00_011500
+
+# V-261960 | CD16-00-011600 | CAT II
+# PostgreSQL must generate audit records showing starting and ending time for user access to the database(s).
+- name: "CD16-00-011600 | CAT II | PostgreSQL must generate audit records showing starting a... - Set log_connections"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_connections\s*='
+    line: "log_connections = on"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-011600
+  when: CD16_00_011600
+- name: "CD16-00-011600 | CAT II | PostgreSQL must generate audit records showing starting a... - Set log_disconnections"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_disconnections\s*='
+    line: "log_disconnections = on"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-011600
+  when: CD16_00_011600
+- name: "CD16-00-011600 | CAT II | PostgreSQL must generate audit records showing starting a... - Set log_line_prefix"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_line_prefix\s*='
+    line: "log_line_prefix = '{{ postgresql_stig_log_line_prefix }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-011600
+  when: CD16_00_011600
+
+# V-261961 | CD16-00-011700 | CAT II
+# PostgreSQL must generate audit records when concurrent logons/connections by the same user from different workstations occur.
+- name: "CD16-00-011700 | CAT II | PostgreSQL must generate audit records when concurrent lo... - Set log_connections"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_connections\s*='
+    line: "log_connections = on"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-011700
+  when: CD16_00_011700
+- name: "CD16-00-011700 | CAT II | PostgreSQL must generate audit records when concurrent lo... - Set log_disconnections"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_disconnections\s*='
+    line: "log_disconnections = on"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-011700
+  when: CD16_00_011700
+- name: "CD16-00-011700 | CAT II | PostgreSQL must generate audit records when concurrent lo... - Set log_line_prefix"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_line_prefix\s*='
+    line: "log_line_prefix = '{{ postgresql_stig_log_line_prefix }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-011700
+  when: CD16_00_011700
+
+# V-261962 | CD16-00-011800 | CAT II
+# PostgreSQL must be able to generate audit records when successful accesses to objects occur.
+- name: "CD16-00-011800 | CAT II | PostgreSQL must be able to generate audit records when su... - Set log_connections"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_connections\s*='
+    line: "log_connections = on"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-011800
+  when: CD16_00_011800
+- name: "CD16-00-011800 | CAT II | PostgreSQL must be able to generate audit records when su... - Set log_line_prefix"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_line_prefix\s*='
+    line: "log_line_prefix = '{{ postgresql_stig_log_line_prefix }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-011800
+  when: CD16_00_011800
+- name: "CD16-00-011800 | CAT II | PostgreSQL must be able to generate audit records when su... - Set pgaudit.log"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log\s*='
+    line: "pgaudit.log = '{{ postgresql_stig_pgaudit_log }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-011800
+  when: CD16_00_011800
+
+# V-261963 | CD16-00-011900 | CAT II
+# PostgreSQL must generate audit records when unsuccessful accesses to objects occur.
+- name: "CD16-00-011900 | CAT II | PostgreSQL must generate audit records when unsuccessful ... - Ensure logging is enabled"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?logging_collector\s*='
+    line: "logging_collector = on"
+    backup: true
+  notify: Restart PostgreSQL
+  tags:
+    - CD16-00-011900
+  when: CD16_00_011900
+
+# V-261964 | CD16-00-012000 | CAT II
+# PostgreSQL must generate audit records for all direct access to the database(s).
+- name: "CD16-00-012000 | CAT II | PostgreSQL must generate audit records for all direct acc... - Set pgaudit.log"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?pgaudit\.log\s*='
+    line: "pgaudit.log = '{{ postgresql_stig_pgaudit_log }}'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-012000
+  when: CD16_00_012000
+- name: "CD16-00-012000 | CAT II | PostgreSQL must generate audit records for all direct acc... - Set log_connections"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_connections\s*='
+    line: "log_connections = on"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-012000
+  when: CD16_00_012000
+- name: "CD16-00-012000 | CAT II | PostgreSQL must generate audit records for all direct acc... - Set log_disconnections"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_disconnections\s*='
+    line: "log_disconnections = on"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-012000
+  when: CD16_00_012000
+
+# V-261965 | CD16-00-012200 | CAT II
+# PostgreSQL must implement NIST FIPS 140-2 or 140-3 validated cryptographic modules to generate and validate cryptographic hashes.
+- name: "CD16-00-012200 | CAT II | PostgreSQL must implement NIST FIPS 140-2 or 140-3 valida... - Ensure FIPS mode is enabled"
+  ansible.builtin.command:
+    cmd: fips-mode-setup --check
+  register: fips_check
+  changed_when: false
+  failed_when: "'is enabled' not in fips_check.stdout"
+  tags:
+    - CD16-00-012200
+  when: CD16_00_012200
+
+# V-261966 | CD16-00-012300 | CAT II
+# PostgreSQL must implement NIST FIPS 140-2 or 140-3 validated cryptographic modules to protect unclassified information requiring confidentiality and cryptographic protection, in accordance with the data owners' requirements.
+- name: "CD16-00-012300 | CAT II | PostgreSQL must implement NIST FIPS 140-2 or 140-3 valida... - Ensure FIPS mode is enabled"
+  ansible.builtin.command:
+    cmd: fips-mode-setup --check
+  register: fips_check
+  changed_when: false
+  failed_when: "'is enabled' not in fips_check.stdout"
+  tags:
+    - CD16-00-012300
+  when: CD16_00_012300
+
+# V-261967 | CD16-00-012400 | CAT II
+# PostgreSQL must offload audit data to a separate log management facility; this must be continuous and in near real time for systems with a network connection to the storage facility and weekly or more often for standalone systems.
+- name: "CD16-00-012400 | CAT II | PostgreSQL must offload audit data to a separate log mana... - Set log_destination"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?log_destination\s*='
+    line: "log_destination = 'syslog'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-012400
+  when: CD16_00_012400
+- name: "CD16-00-012400 | CAT II | PostgreSQL must offload audit data to a separate log mana... - Set syslog_facility"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?syslog_facility\s*='
+    line: "syslog_facility = 'LOCAL0'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-012400
+  when: CD16_00_012400
+- name: "CD16-00-012400 | CAT II | PostgreSQL must offload audit data to a separate log mana... - Set syslog_ident"
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_conf_path }}"
+    regexp: '^#?syslog_ident\s*='
+    line: "syslog_ident = 'postgres'"
+    backup: true
+  notify: Reload PostgreSQL
+  tags:
+    - CD16-00-012400
+  when: CD16_00_012400

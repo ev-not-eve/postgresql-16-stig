@@ -1,0 +1,7 @@
+---
+- name: Deploy PostgreSQL 16 STIG
+  hosts: localhost
+  become: true
+
+  roles:
+    - ../roles/postgresql16_stig
