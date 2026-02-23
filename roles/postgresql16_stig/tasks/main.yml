@@ -14,6 +14,81 @@
   changed_when: false
   when: postgresql_stig_enable_manual_review_tasks
 
+- name: "PostgreSQL 16 STIG | Ensure pgaudit package is installed"
+  ansible.builtin.package:
+    name: "{{ postgresql_pgaudit_package_name }}"
+    state: present
+  tags:
+    - pgaudit
+    - CD16-00-000500
+    - CD16-00-000900
+    - CD16-00-001600
+    - CD16-00-011400
+  when:
+    - postgresql_stig_install_pgaudit_package
+    - CD16_00_000500 or CD16_00_000900 or CD16_00_001600 or CD16_00_011400
+
+- name: "PostgreSQL 16 STIG | Ensure self-signed certificate directory exists"
+  ansible.builtin.file:
+    path: "{{ postgresql_stig_self_signed_cert_dir }}"
+    state: directory
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: "0700"
+  tags:
+    - ssl
+    - self_signed_cert
+  when: postgresql_stig_generate_self_signed_server_cert
+
+- name: "PostgreSQL 16 STIG | Generate self-signed server certificate (10 years)"
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - req
+      - -x509
+      - -nodes
+      - -newkey
+      - rsa:4096
+      - -keyout
+      - "{{ postgresql_stig_self_signed_key_file }}"
+      - -out
+      - "{{ postgresql_stig_self_signed_cert_file }}"
+      - -days
+      - "{{ postgresql_stig_self_signed_cert_days | string }}"
+      - -subj
+      - "/CN={{ postgresql_stig_self_signed_cert_common_name }}"
+  args:
+    creates: "{{ postgresql_stig_self_signed_cert_file }}"
+  notify: Restart PostgreSQL
+  tags:
+    - ssl
+    - self_signed_cert
+  when: postgresql_stig_generate_self_signed_server_cert
+
+- name: "PostgreSQL 16 STIG | Set self-signed server private key permissions"
+  ansible.builtin.file:
+    path: "{{ postgresql_stig_self_signed_key_file }}"
+    state: file
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: "0600"
+  tags:
+    - ssl
+    - self_signed_cert
+  when: postgresql_stig_generate_self_signed_server_cert
+
+- name: "PostgreSQL 16 STIG | Set self-signed server certificate permissions"
+  ansible.builtin.file:
+    path: "{{ postgresql_stig_self_signed_cert_file }}"
+    state: file
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: "0600"
+  tags:
+    - ssl
+    - self_signed_cert
+  when: postgresql_stig_generate_self_signed_server_cert
+
 # V-261857 | CD16-00-000100 | CAT II
 # PostgreSQL must limit the number of concurrent sessions to an organization-defined number per user for all accounts and/or account types.
 - name: "CD16-00-000100 | CAT II | PostgreSQL must limit the number of concurrent sessions t... - Set max_connections"

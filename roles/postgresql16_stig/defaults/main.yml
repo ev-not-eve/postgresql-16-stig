@@ -4,17 +4,29 @@
 
 # PostgreSQL configuration paths
 postgresql_version: "16"
-postgresql_data_dir: "/var/lib/pgsql/16/data"
+postgresql_data_dir: "/var/lib/pgsql/data"
 postgresql_conf_path: "{{ postgresql_data_dir }}/postgresql.conf"
 postgresql_hba_path: "{{ postgresql_data_dir }}/pg_hba.conf"
 postgresql_log_dir: "{{ postgresql_data_dir }}/log"
-postgresql_service_name: "postgresql-16"
+postgresql_service_name: "postgresql"
 postgresql_user: "postgres"
 postgresql_group: "postgres"
-postgresql_ssl_cert_file: "/var/lib/pgsql/16/data/server.crt"
-postgresql_ssl_key_file: "/var/lib/pgsql/16/data/server.key"
-postgresql_ssl_ca_file: "/var/lib/pgsql/16/data/root.crt"
-postgresql_ssl_crl_file: "/var/lib/pgsql/16/data/root.crl"
+postgresql_ssl_cert_file: "/var/lib/pgsql/data/server.crt"
+postgresql_ssl_key_file: "/var/lib/pgsql/data/server.key"
+postgresql_ssl_ca_file: "/var/lib/pgsql/data/root.crt"
+postgresql_ssl_crl_file: "/var/lib/pgsql/data/root.crl"
+
+# Optional prerequisites
+# Package name may vary by repository/vendor; override as needed.
+postgresql_stig_install_pgaudit_package: true
+postgresql_pgaudit_package_name: "pgaudit"
+
+postgresql_stig_generate_self_signed_server_cert: true
+postgresql_stig_self_signed_cert_dir: "/var/lib/pgsql/data"
+postgresql_stig_self_signed_cert_file: "{{ postgresql_stig_self_signed_cert_dir }}/server.crt"
+postgresql_stig_self_signed_key_file: "{{ postgresql_stig_self_signed_cert_dir }}/server.key"
+postgresql_stig_self_signed_cert_common_name: "{{ inventory_hostname }}"
+postgresql_stig_self_signed_cert_days: 3650
 
 # STIG organization-defined values (override for site policy)
 postgresql_stig_max_connections: 10
