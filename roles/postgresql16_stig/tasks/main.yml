@@ -40,6 +40,54 @@
     - self_signed_cert
   when: postgresql_stig_generate_self_signed_server_cert
 
+- name: "PostgreSQL 16 STIG | Generate self-signed root CA certificate (10 years)"
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - req
+      - -x509
+      - -nodes
+      - -newkey
+      - rsa:4096
+      - -keyout
+      - "{{ postgresql_stig_self_signed_root_key_file }}"
+      - -out
+      - "{{ postgresql_stig_self_signed_root_cert_file }}"
+      - -days
+      - "{{ postgresql_stig_self_signed_root_cert_days | string }}"
+      - -subj
+      - "/CN={{ postgresql_stig_self_signed_root_common_name }}"
+  args:
+    creates: "{{ postgresql_stig_self_signed_root_cert_file }}"
+  tags:
+    - ssl
+    - self_signed_cert
+  when: postgresql_stig_generate_self_signed_server_cert
+
+- name: "PostgreSQL 16 STIG | Set self-signed root CA private key permissions"
+  ansible.builtin.file:
+    path: "{{ postgresql_stig_self_signed_root_key_file }}"
+    state: file
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: "0600"
+  tags:
+    - ssl
+    - self_signed_cert
+  when: postgresql_stig_generate_self_signed_server_cert
+
+- name: "PostgreSQL 16 STIG | Set self-signed root CA certificate permissions"
+  ansible.builtin.file:
+    path: "{{ postgresql_stig_self_signed_root_cert_file }}"
+    state: file
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: "0600"
+  tags:
+    - ssl
+    - self_signed_cert
+  when: postgresql_stig_generate_self_signed_server_cert
+
 - name: "PostgreSQL 16 STIG | Generate self-signed server certificate (10 years)"
   ansible.builtin.command:
     argv:
