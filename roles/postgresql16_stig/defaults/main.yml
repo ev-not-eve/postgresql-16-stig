@@ -25,12 +25,19 @@ postgresql_stig_generate_self_signed_server_cert: true
 postgresql_stig_self_signed_cert_dir: "/var/lib/pgsql/data"
 postgresql_stig_self_signed_cert_file: "{{ postgresql_stig_self_signed_cert_dir }}/server.crt"
 postgresql_stig_self_signed_key_file: "{{ postgresql_stig_self_signed_cert_dir }}/server.key"
+postgresql_stig_self_signed_csr_file: "{{ postgresql_stig_self_signed_cert_dir }}/server.csr"
 postgresql_stig_self_signed_root_cert_file: "{{ postgresql_stig_self_signed_cert_dir }}/root.crt"
 postgresql_stig_self_signed_root_key_file: "{{ postgresql_stig_self_signed_cert_dir }}/root.key"
+postgresql_stig_self_signed_root_crl_file: "{{ postgresql_stig_self_signed_cert_dir }}/root.crl"
+postgresql_stig_self_signed_root_serial_file: "{{ postgresql_stig_self_signed_cert_dir }}/root.srl"
 postgresql_stig_self_signed_cert_common_name: "{{ inventory_hostname }}"
 postgresql_stig_self_signed_root_common_name: "{{ inventory_hostname }}-local-root-ca"
 postgresql_stig_self_signed_cert_days: 3650
 postgresql_stig_self_signed_root_cert_days: 3650
+postgresql_stig_self_signed_root_crl_days: 3650
+postgresql_stig_self_signed_ca_state_dir: "{{ postgresql_stig_self_signed_cert_dir }}/.openssl-ca"
+postgresql_stig_self_signed_ca_newcerts_dir: "{{ postgresql_stig_self_signed_ca_state_dir }}/newcerts"
+postgresql_stig_self_signed_ca_config_file: "{{ postgresql_stig_self_signed_ca_state_dir }}/openssl-ca.cnf"
 
 # STIG organization-defined values (override for site policy)
 postgresql_stig_max_connections: 10

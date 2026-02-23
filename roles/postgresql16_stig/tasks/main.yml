@@ -40,6 +40,92 @@
     - self_signed_cert
   when: postgresql_stig_generate_self_signed_server_cert
 
+- name: "PostgreSQL 16 STIG | Ensure local OpenSSL CA state directories exist"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: "0700"
+  loop:
+    - "{{ postgresql_stig_self_signed_ca_state_dir }}"
+    - "{{ postgresql_stig_self_signed_ca_newcerts_dir }}"
+  loop_control:
+    label: "{{ item }}"
+  tags:
+    - ssl
+    - self_signed_cert
+  when: postgresql_stig_generate_self_signed_server_cert
+
+- name: "PostgreSQL 16 STIG | Initialize local OpenSSL CA index"
+  ansible.builtin.file:
+    path: "{{ postgresql_stig_self_signed_ca_state_dir }}/index.txt"
+    state: touch
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: "0600"
+  tags:
+    - ssl
+    - self_signed_cert
+  when: postgresql_stig_generate_self_signed_server_cert
+
+- name: "PostgreSQL 16 STIG | Initialize local OpenSSL CA serial"
+  ansible.builtin.copy:
+    dest: "{{ postgresql_stig_self_signed_ca_state_dir }}/serial"
+    content: "1000\n"
+    force: false
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: "0600"
+  tags:
+    - ssl
+    - self_signed_cert
+  when: postgresql_stig_generate_self_signed_server_cert
+
+- name: "PostgreSQL 16 STIG | Initialize local OpenSSL CA crlnumber"
+  ansible.builtin.copy:
+    dest: "{{ postgresql_stig_self_signed_ca_state_dir }}/crlnumber"
+    content: "1000\n"
+    force: false
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: "0600"
+  tags:
+    - ssl
+    - self_signed_cert
+  when: postgresql_stig_generate_self_signed_server_cert
+
+- name: "PostgreSQL 16 STIG | Write local OpenSSL CA config for CRL generation"
+  ansible.builtin.copy:
+    dest: "{{ postgresql_stig_self_signed_ca_config_file }}"
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: "0600"
+    content: |
+      [ ca ]
+      default_ca = CA_default
+
+      [ CA_default ]
+      dir = {{ postgresql_stig_self_signed_ca_state_dir }}
+      database = $dir/index.txt
+      new_certs_dir = {{ postgresql_stig_self_signed_ca_newcerts_dir }}
+      serial = $dir/serial
+      crlnumber = $dir/crlnumber
+      certificate = {{ postgresql_stig_self_signed_root_cert_file }}
+      private_key = {{ postgresql_stig_self_signed_root_key_file }}
+      default_md = sha256
+      default_days = {{ postgresql_stig_self_signed_cert_days }}
+      default_crl_days = {{ postgresql_stig_self_signed_root_crl_days }}
+      policy = policy_any
+      unique_subject = no
+
+      [ policy_any ]
+      commonName = supplied
+  tags:
+    - ssl
+    - self_signed_cert
+  when: postgresql_stig_generate_self_signed_server_cert
+
 - name: "PostgreSQL 16 STIG | Generate self-signed root CA certificate (10 years)"
   ansible.builtin.command:
     argv:
@@ -88,23 +174,83 @@
     - self_signed_cert
   when: postgresql_stig_generate_self_signed_server_cert
 
-- name: "PostgreSQL 16 STIG | Generate self-signed server certificate (10 years)"
+- name: "PostgreSQL 16 STIG | Generate root CRL (10 years)"
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - ca
+      - -gencrl
+      - -batch
+      - -config
+      - "{{ postgresql_stig_self_signed_ca_config_file }}"
+      - -keyfile
+      - "{{ postgresql_stig_self_signed_root_key_file }}"
+      - -cert
+      - "{{ postgresql_stig_self_signed_root_cert_file }}"
+      - -out
+      - "{{ postgresql_stig_self_signed_root_crl_file }}"
+      - -crldays
+      - "{{ postgresql_stig_self_signed_root_crl_days | string }}"
+  args:
+    creates: "{{ postgresql_stig_self_signed_root_crl_file }}"
+  tags:
+    - ssl
+    - self_signed_cert
+  when: postgresql_stig_generate_self_signed_server_cert
+
+- name: "PostgreSQL 16 STIG | Set root CRL permissions"
+  ansible.builtin.file:
+    path: "{{ postgresql_stig_self_signed_root_crl_file }}"
+    state: file
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: "0600"
+  tags:
+    - ssl
+    - self_signed_cert
+  when: postgresql_stig_generate_self_signed_server_cert
+
+- name: "PostgreSQL 16 STIG | Generate server private key and certificate signing request"
   ansible.builtin.command:
     argv:
       - openssl
       - req
-      - -x509
       - -nodes
       - -newkey
       - rsa:4096
       - -keyout
       - "{{ postgresql_stig_self_signed_key_file }}"
       - -out
+      - "{{ postgresql_stig_self_signed_csr_file }}"
+      - -subj
+      - "/CN={{ postgresql_stig_self_signed_cert_common_name }}"
+  args:
+    creates: "{{ postgresql_stig_self_signed_cert_file }}"
+  tags:
+    - ssl
+    - self_signed_cert
+  when: postgresql_stig_generate_self_signed_server_cert
+
+- name: "PostgreSQL 16 STIG | Sign server certificate with local root CA (10 years)"
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - x509
+      - -req
+      - -in
+      - "{{ postgresql_stig_self_signed_csr_file }}"
+      - -CA
+      - "{{ postgresql_stig_self_signed_root_cert_file }}"
+      - -CAkey
+      - "{{ postgresql_stig_self_signed_root_key_file }}"
+      - -CAserial
+      - "{{ postgresql_stig_self_signed_root_serial_file }}"
+      - -CAcreateserial
+      - -out
       - "{{ postgresql_stig_self_signed_cert_file }}"
       - -days
       - "{{ postgresql_stig_self_signed_cert_days | string }}"
-      - -subj
-      - "/CN={{ postgresql_stig_self_signed_cert_common_name }}"
+      - -sha256
   args:
     creates: "{{ postgresql_stig_self_signed_cert_file }}"
   notify: Restart PostgreSQL
@@ -112,6 +258,40 @@
     - ssl
     - self_signed_cert
   when: postgresql_stig_generate_self_signed_server_cert
+
+- name: "PostgreSQL 16 STIG | Check server certificate request presence"
+  ansible.builtin.stat:
+    path: "{{ postgresql_stig_self_signed_csr_file }}"
+  register: postgresql_stig_self_signed_csr_stat
+  changed_when: false
+  tags:
+    - ssl
+    - self_signed_cert
+  when: postgresql_stig_generate_self_signed_server_cert
+
+- name: "PostgreSQL 16 STIG | Check local root CA serial file presence"
+  ansible.builtin.stat:
+    path: "{{ postgresql_stig_self_signed_root_serial_file }}"
+  register: postgresql_stig_self_signed_root_serial_stat
+  changed_when: false
+  tags:
+    - ssl
+    - self_signed_cert
+  when: postgresql_stig_generate_self_signed_server_cert
+
+- name: "PostgreSQL 16 STIG | Set server certificate request permissions"
+  ansible.builtin.file:
+    path: "{{ postgresql_stig_self_signed_csr_file }}"
+    state: file
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: "0600"
+  tags:
+    - ssl
+    - self_signed_cert
+  when:
+    - postgresql_stig_generate_self_signed_server_cert
+    - postgresql_stig_self_signed_csr_stat.stat.exists
 
 - name: "PostgreSQL 16 STIG | Set self-signed server private key permissions"
   ansible.builtin.file:
@@ -124,6 +304,20 @@
     - ssl
     - self_signed_cert
   when: postgresql_stig_generate_self_signed_server_cert
+
+- name: "PostgreSQL 16 STIG | Set local root CA serial file permissions"
+  ansible.builtin.file:
+    path: "{{ postgresql_stig_self_signed_root_serial_file }}"
+    state: file
+    owner: "{{ postgresql_user }}"
+    group: "{{ postgresql_group }}"
+    mode: "0600"
+  tags:
+    - ssl
+    - self_signed_cert
+  when:
+    - postgresql_stig_generate_self_signed_server_cert
+    - postgresql_stig_self_signed_root_serial_stat.stat.exists
 
 - name: "PostgreSQL 16 STIG | Set self-signed server certificate permissions"
   ansible.builtin.file:
