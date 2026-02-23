@@ -58,9 +58,10 @@
   when: postgresql_stig_generate_self_signed_server_cert
 
 - name: "PostgreSQL 16 STIG | Initialize local OpenSSL CA index"
-  ansible.builtin.file:
-    path: "{{ postgresql_stig_self_signed_ca_state_dir }}/index.txt"
-    state: touch
+  ansible.builtin.copy:
+    dest: "{{ postgresql_stig_self_signed_ca_state_dir }}/index.txt"
+    content: ""
+    force: false
     owner: "{{ postgresql_user }}"
     group: "{{ postgresql_group }}"
     mode: "0600"
